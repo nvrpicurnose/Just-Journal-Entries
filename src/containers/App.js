@@ -19,19 +19,89 @@ const App = React.createClass({
   },
 
   componentWillMount(){
+    // initiate the GAPI (Google API) with OAuth2, and then execute the setupGoogleAPI callback
+    // gapi is a globally available variable
     gapi.load('client:auth2', this.setupGoogleAPI);
   },
 
+  // sets up Google API with OAuth2 clientId (apiKey is not needed if using OAuth2)
   setupGoogleAPI(){
-    const apiKey = 'AIzaSyDRChYVMANy6bgD2YYhNSk2WAhAWeMIuCo';
+    const self = this;
+    // const apiKey = 'AIzaSyDRChYVMANy6bgD2YYhNSk2WAhAWeMIuCo';
     const clientId = '860022346150-pvbgc90fhf281e3bc739j6krpof8llbu.apps.googleusercontent.com';
-    const scopes = 'profile';
+    const scopes = 'profile';   // initially we only ask for profile access. Later we request for Google Drive
 
+    // hacky solution using setTimeout to the async problem of Google API being loaded
     setTimeout(function(){
-      gapi.client.setApiKey('AIzaSyDRChYVMANy6bgD2YYhNSk2WAhAWeMIuCo');
+      // gapi.client.setApiKey('AIzaSyDRChYVMANy6bgD2YYhNSk2WAhAWeMIuCo');
       const GoogleUser = gapi.auth2.getAuthInstance().currentUser.get();
       console.log(GoogleUser.getBasicProfile().getEmail());
+      self.setupDriveAPI(GoogleUser);
     }, 2000);
+  },
+
+  // setup Google Drive API
+  setupDriveAPI(GoogleUser){
+    const self = this;
+    // request additional scope permissions
+    const scopes = [
+      'https://www.googleapis.com/auth/drive', 
+      'https://www.googleapis.com/auth/drive.appdata',
+      'https://www.googleapis.com/auth/drive.file'
+    ];
+    const options = gapi.auth2.SigninOptionsBuilder(
+        {'scope': scopes.join(' ')});
+
+    GoogleUser.grant(options).then(
+        function(success){
+          console.log("Google Drive API successfully accessed!");
+          // upon load, we will initiate the drive check
+          gapi.client.load('drive', 'v3', self.initiateDriveFiles);
+        },
+        function(fail){
+          alert(JSON.stringify({message: "fail", value: fail}));
+        });
+  },
+
+  // check Google Drive to find the "JustJournalEntries" folder
+  // creates the folder if not found
+  initiateDriveFiles(){
+    const self = this;
+    gapi.client.drive.files.list({
+      pageSize: 1000
+    }).execute(function(resp){
+      console.log(resp);
+      const initFolder = resp.files.filter(function(file){
+        return file.mimeType == 'application/vnd.google-apps.folder' && file.name == 'JustJournalEntries'
+      });
+      console.log(initFolder);
+      if(initFolder.length == 0){
+        self.createDriveFolder();
+      }else{
+        console.log("JustJournalEntries folder exists! Excellent.");
+      }
+    });
+  },
+
+  createDriveFolder(){
+    console.log("JustJournalEntries folder not found. Creating a new folder.");
+    const fileMetadata = {
+      name : 'JustJournalEntries',
+      mimeType : 'application/vnd.google-apps.folder'
+    };
+    gapi.client.drive.files.create({
+       resource: fileMetadata,
+       uploadType: "multipart",
+       fields: 'id'
+    }).execute(function(err, file) {
+      console.log("checking something");
+      if(err) {
+        // Handle error
+        console.log(err);
+      } else {
+        console.log('Folder Id: ', file.id);
+      }
+    });
   },
 
   render() {
@@ -39,8 +109,7 @@ const App = React.createClass({
     const { counter, actions } = this.props;
     return (
       <div className="main-app-container">
-        <div className="main-app-nav">Simple Redux Boilerplate</div>
-
+        <div className="main-app-nav">Just Journal Entries</div>
         {/* notice that we then pass those unpacked props into the Counter component */}
         <Counter counter={counter} actions={actions} />
         <Footer />
